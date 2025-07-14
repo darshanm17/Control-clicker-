@@ -1,61 +1,63 @@
-# Control-clicker-
-// main.swift
 import Foundation
-import ApplicationServices
 import Cocoa
+import ApplicationServices
 
-func findMenuBarItem(named itemName: String) -> AXUIElement? {
-    let systemUIApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.systemuiserver").first
-    guard let pid = systemUIApp?.processIdentifier else {
-        print("SystemUIServer not found.")
-        return nil
-    }
-
-    let appElement = AXUIElementCreateApplication(pid)
-
-    var menuBars: CFTypeRef?
-    let result = AXUIElementCopyAttributeValue(appElement, kAXMenuBarAttribute as CFString, &menuBars)
-
-    guard result == .success, let menuBar = menuBars else {
-        print("Failed to get menu bar.")
-        return nil
-    }
-
-    var items: CFTypeRef?
-    let childrenResult = AXUIElementCopyAttributeValue(menuBar as! AXUIElement, kAXChildrenAttribute as CFString, &items)
-
-    guard childrenResult == .success, let itemArray = items as? [AXUIElement] else {
-        print("Failed to get menu bar items.")
-        return nil
-    }
-
-    for item in itemArray {
-        var title: CFTypeRef?
-        let nameResult = AXUIElementCopyAttributeValue(item, kAXDescriptionAttribute as CFString, &title)
-
-        if nameResult == .success,
-           let name = title as? String,
-           name.lowercased().contains(itemName.lowercased()) {
-            return item
+func getControlCenterProcess() -> AXUIElement? {
+    let apps = NSWorkspace.shared.runningApplications
+    for app in apps {
+        if app.bundleIdentifier == "com.apple.controlcenter" {
+            return AXUIElementCreateApplication(app.processIdentifier)
         }
     }
-
     return nil
 }
 
-func clickControlCenter() {
-    guard let controlCenterItem = findMenuBarItem(named: "control center") else {
-        print("Control Center menu item not found.")
+func dumpButtons(in element: AXUIElement, depth: Int = 0) {
+    var children: CFTypeRef?
+    let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+
+    guard result == .success, let childrenArray = children as? [AXUIElement] else {
         return
     }
 
-    let result = AXUIElementPerformAction(controlCenterItem, kAXPressAction as CFString)
-    if result == .success {
-        print("✅ Clicked Control Center!")
-    } else {
-        print("❌ Failed to click Control Center.")
+    for child in childrenArray {
+        var role: CFTypeRef?
+        AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &role)
+
+        if let role = role as? String, role == kAXButtonRole as String {
+            var title: CFTypeRef?
+            if AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &title) == .success,
+               let name = title as? String {
+                print("🔘 Button found: \(String(repeating: " ", count: depth * 2))\(name)")
+            }
+        }
+
+        // Recursively search deeper levels
+        dumpButtons(in: child, depth: depth + 1)
     }
 }
 
-// MARK: - Run it
-clickControlCenter()
+func findControlCenterWindow() -> AXUIElement? {
+    guard let controlCenter = getControlCenterProcess() else {
+        print("❌ Control Center app not found.")
+        return nil
+    }
+
+    var windows: CFTypeRef?
+    AXUIElementCopyAttributeValue(controlCenter, kAXWindowsAttribute as CFString, &windows)
+
+    guard let windowArray = windows as? [AXUIElement], let firstWindow = windowArray.first else {
+        print("❌ No Control Center windows found.")
+        return nil
+    }
+
+    return firstWindow
+}
+
+// MARK: - MAIN
+print("🔍 Looking for Control Center devices...")
+if let ccWindow = findControlCenterWindow() {
+    dumpButtons(in: ccWindow)
+} else {
+    print("❌ Couldn't access Control Center window.")
+}
